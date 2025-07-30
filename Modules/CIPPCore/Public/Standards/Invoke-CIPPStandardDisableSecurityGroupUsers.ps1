@@ -24,7 +24,7 @@ function Invoke-CIPPStandardDisableSecurityGroupUsers {
         UPDATECOMMENTBLOCK
             Run the Tools\Update-StandardsComments.ps1 script to update this comment block
     .LINK
-        https://docs.cipp.app/user-documentation/tenant/standards/list-standards/entra-aad-standards#medium-impact
+        https://docs.cipp.app/user-documentation/tenant/standards/list-standards
     #>
 
     param($Tenant, $Settings)
@@ -53,11 +53,14 @@ function Invoke-CIPPStandardDisableSecurityGroupUsers {
         if ($CurrentInfo.defaultUserRolePermissions.allowedToCreateSecurityGroups -eq $false) {
             Write-LogMessage -API 'Standards' -tenant $tenant -message 'Users are not allowed to create Security Groups.' -sev Info
         } else {
-            Write-LogMessage -API 'Standards' -tenant $tenant -message 'Users are allowed to create Security Groups.' -sev Alert
+            Write-StandardsAlert -message 'Users are allowed to create Security Groups' -object $CurrentInfo -tenant $tenant -standardName 'DisableSecurityGroupUsers' -standardId $Settings.standardId
+            Write-LogMessage -API 'Standards' -tenant $tenant -message 'Users are allowed to create Security Groups.' -sev Info
         }
     }
 
     if ($Settings.report -eq $true) {
+        $state = $CurrentInfo.defaultUserRolePermissions.allowedToCreateSecurityGroups -eq $false ? $true : ($currentInfo.defaultUserRolePermissions | Select-Object allowedToCreateSecurityGroups)
+        Set-CIPPStandardsCompareField -FieldName 'standards.DisableSecurityGroupUsers' -FieldValue $state -Tenant $tenant
         Add-CIPPBPAField -FieldName 'DisableSecurityGroupUsers' -FieldValue $CurrentInfo.defaultUserRolePermissions.allowedToCreateSecurityGroups -StoreAs bool -Tenant $tenant
     }
 }

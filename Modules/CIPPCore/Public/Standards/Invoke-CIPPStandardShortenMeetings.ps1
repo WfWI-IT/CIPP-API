@@ -27,27 +27,21 @@ function Invoke-CIPPStandardShortenMeetings {
         UPDATECOMMENTBLOCK
             Run the Tools\Update-StandardsComments.ps1 script to update this comment block
     .LINK
-        https://docs.cipp.app/user-documentation/tenant/standards/list-standards/exchange-standards#medium-impact
+        https://docs.cipp.app/user-documentation/tenant/standards/list-standards
     #>
 
     param($Tenant, $Settings)
-    ##$Rerun -Type Standard -Tenant $Tenant -Settings $Settings 'ShortenMeetings'
+    $TestResult = Test-CIPPStandardLicense -StandardName 'ShortenMeetings' -TenantFilter $Tenant -RequiredCapabilities @('EXCHANGE_S_STANDARD', 'EXCHANGE_S_ENTERPRISE', 'EXCHANGE_LITE') #No Foundation because that does not allow powershell access
 
-    # Input validation
-    if ([Int32]$Settings.DefaultMinutesToReduceShortEventsBy -lt 0 -or [Int32]$Settings.DefaultMinutesToReduceShortEventsBy -gt 29) {
-        Write-LogMessage -API 'Standards' -tenant $Tenant -message 'ShortenMeetings: Invalid setting specified. DefaultMinutesToReduceShortEventsBy must be an integer between 0 and 29' -sev Error
-        Return
-    }
-    if ([Int32]$Settings.DefaultMinutesToReduceLongEventsBy -lt 0 -or [Int32]$Settings.DefaultMinutesToReduceLongEventsBy -gt 29) {
-        Write-LogMessage -API 'Standards' -tenant $Tenant -message 'ShortenMeetings: Invalid setting specified. DefaultMinutesToReduceLongEventsBy must be an integer between 0 and 29' -sev Error
-        Return
-    }
-
+    if ($TestResult -eq $false) {
+        Write-Host "We're exiting as the correct license is not present for this standard."
+        return $true
+    } #we're done.
+    Write-Host "ShortenMeetings: $($Settings | ConvertTo-Json -Compress)"
     # Get state value using null-coalescing operator
-    $scopeDefault = $Settings.ShortenEventScopeDefault.value ?? $Settings.ShortenEventScopeDefault
+    $scopeDefault = $Settings.ShortenEventScopeDefault.value ? $Settings.ShortenEventScopeDefault.value : $Settings.ShortenEventScopeDefault
 
-    $CurrentState = New-ExoRequest -tenantid $Tenant -cmdlet 'Get-OrganizationConfig' |
-        Select-Object -Property ShortenEventScopeDefault, DefaultMinutesToReduceShortEventsBy, DefaultMinutesToReduceLongEventsBy
+    $CurrentState = New-ExoRequest -tenantid $Tenant -cmdlet 'Get-OrganizationConfig' | Select-Object -Property ShortenEventScopeDefault, DefaultMinutesToReduceShortEventsBy, DefaultMinutesToReduceLongEventsBy
     $CorrectState = if ($CurrentState.ShortenEventScopeDefault -eq $scopeDefault -and
         $CurrentState.DefaultMinutesToReduceShortEventsBy -eq $Settings.DefaultMinutesToReduceShortEventsBy -and
         $CurrentState.DefaultMinutesToReduceLongEventsBy -eq $Settings.DefaultMinutesToReduceLongEventsBy) { $true } else { $false }
@@ -59,8 +53,8 @@ function Invoke-CIPPStandardShortenMeetings {
             Write-LogMessage -API 'Standards' -tenant $Tenant -message 'Shorten meetings settings are already in the correct state. ' -sev Info
         } else {
             try {
-                $null = New-ExoRequest -tenantid $Tenant -cmdlet 'Set-OrganizationConfig' -cmdParams @{ShortenEventScopeDefault = $Settings.ShortenEventScopeDefault; DefaultMinutesToReduceShortEventsBy = $Settings.DefaultMinutesToReduceShortEventsBy; DefaultMinutesToReduceLongEventsBy = $Settings.DefaultMinutesToReduceLongEventsBy }
-                Write-LogMessage -API 'Standards' -tenant $Tenant -message "Shorten meetings settings have been set to the following state. State: $($Settings.ShortenEventScopeDefault), Short:$($Settings.DefaultMinutesToReduceShortEventsBy), Long: $($Settings.DefaultMinutesToReduceLongEventsBy)" -sev Info
+                $null = New-ExoRequest -tenantid $Tenant -cmdlet 'Set-OrganizationConfig' -cmdParams @{ShortenEventScopeDefault = $scopeDefault ; DefaultMinutesToReduceShortEventsBy = $Settings.DefaultMinutesToReduceShortEventsBy; DefaultMinutesToReduceLongEventsBy = $Settings.DefaultMinutesToReduceLongEventsBy }
+                Write-LogMessage -API 'Standards' -tenant $Tenant -message "Shorten meetings settings have been set to the following state. State: $($scopeDefault), Short:$($Settings.DefaultMinutesToReduceShortEventsBy), Long: $($Settings.DefaultMinutesToReduceLongEventsBy)" -sev Info
             } catch {
                 $ErrorMessage = Get-CippException -Exception $_
                 Write-LogMessage -API 'Standards' -tenant $Tenant -message "Failed to set shorten meetings settings. Error: $($ErrorMessage.NormalizedError)" -sev Error -LogData $ErrorMessage
@@ -73,16 +67,29 @@ function Invoke-CIPPStandardShortenMeetings {
         if ($CorrectState -eq $true) {
             Write-LogMessage -API 'Standards' -tenant $Tenant -message "Shorten meetings settings are already in the correct state. Current state: $($CurrentState.ShortenEventScopeDefault), Short:$($CurrentState.DefaultMinutesToReduceShortEventsBy), Long: $($CurrentState.DefaultMinutesToReduceLongEventsBy)" -sev Info
         } else {
-            Write-LogMessage -API 'Standards' -tenant $Tenant -message "Shorten meetings settings are not in the correct state. Current state: $($CurrentState.ShortenEventScopeDefault), Short:$($CurrentState.DefaultMinutesToReduceShortEventsBy), Long: $($CurrentState.DefaultMinutesToReduceLongEventsBy)" -sev Alert
+            Write-StandardsAlert -message 'Shorten meetings settings are not in the correct state.' -object $CurrentState -tenant $Tenant -standardName 'ShortenMeetings' -standardId $Settings.standardId
+            Write-LogMessage -API 'Standards' -tenant $Tenant -message "Shorten meetings settings are not in the correct state. Current state: $($CurrentState.ShortenEventScopeDefault), Short:$($CurrentState.DefaultMinutesToReduceShortEventsBy), Long: $($CurrentState.DefaultMinutesToReduceLongEventsBy)" -sev Info
         }
     }
 
     if ($Settings.report -eq $true) {
+        $BPAField = @{
+            FieldName  = 'ShortenMeetings'
+            FieldValue = $CorrectState
+            Tenant     = $Tenant
+        }
 
         if ($CorrectState -eq $true) {
-            Add-CIPPBPAField -FieldName 'ShortenMeetings' -FieldValue $CorrectState -StoreAs bool -Tenant $Tenant
+            Add-CIPPBPAField @BPAField -StoreAs bool
         } else {
-            Add-CIPPBPAField -FieldName 'ShortenMeetings' -FieldValue $CurrentState -StoreAs json -Tenant $Tenant
+            Add-CIPPBPAField @BPAField -StoreAs json
         }
+
+        if ($CorrectState -eq $true) {
+            $FieldValue = $true
+        } else {
+            $FieldValue = $CurrentState
+        }
+        Set-CIPPStandardsCompareField -FieldName 'standards.ShortenMeetings' -FieldValue $FieldValue -Tenant $Tenant
     }
 }

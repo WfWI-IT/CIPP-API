@@ -1,9 +1,9 @@
 using namespace System.Net
 
-Function Invoke-AddExConnector {
+function Invoke-AddExConnector {
     <#
     .FUNCTIONALITY
-        Entrypoint
+        Entrypoint,AnyTenant
     .ROLE
         Exchange.Connector.ReadWrite
     #>
@@ -16,9 +16,18 @@ Function Invoke-AddExConnector {
 
 
     $ConnectorType = ($Request.Body.PowerShellCommand | ConvertFrom-Json).cippConnectorType
-    $RequestParams = $Request.Body.PowerShellCommand | ConvertFrom-Json | Select-Object -Property * -ExcludeProperty GUID, cippConnectorType, comments
-
+    $RequestParams = $Request.Body.PowerShellCommand | ConvertFrom-Json | Select-Object -Property * -ExcludeProperty GUID, cippConnectorType, SenderRewritingEnabled
+    if ($RequestParams.comment) { $RequestParams.comment = Get-CIPPTextReplacement -Text $RequestParams.comment -TenantFilter $Tenant } else { $RequestParams | Add-Member -NotePropertyValue 'no comment' -NotePropertyName comment -Force }
     $Tenants = ($Request.Body.selectedTenants).value
+
+    $AllowedTenants = Test-CippAccess -Request $Request -TenantList
+
+    if ($AllowedTenants -ne 'AllTenants') {
+        $AllTenants = Get-Tenants -IncludeErrors
+        $AllowedTenantList = $AllTenants | Where-Object { $_.customerId -in $AllowedTenants }
+        $Tenants = $Tenants | Where-Object { $_ -in $AllowedTenantList.defaultDomainName }
+    }
+
     $Result = foreach ($TenantFilter in $Tenants) {
         try {
             $null = New-ExoRequest -tenantid $TenantFilter -cmdlet "New-$($ConnectorType)connector" -cmdParams $RequestParams

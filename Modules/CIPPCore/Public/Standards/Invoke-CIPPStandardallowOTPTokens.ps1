@@ -24,7 +24,7 @@ function Invoke-CIPPStandardallowOTPTokens {
         UPDATECOMMENTBLOCK
             Run the Tools\Update-StandardsComments.ps1 script to update this comment block
     .LINK
-        https://docs.cipp.app/user-documentation/tenant/standards/list-standards/entra-aad-standards#low-impact
+        https://docs.cipp.app/user-documentation/tenant/standards/list-standards
     #>
 
     param($Tenant, $Settings)
@@ -47,11 +47,13 @@ function Invoke-CIPPStandardallowOTPTokens {
         if ($CurrentInfo.isSoftwareOathEnabled) {
             Write-LogMessage -API 'Standards' -tenant $tenant -message 'MS authenticator OTP/oAuth tokens is enabled' -sev Info
         } else {
-            Write-LogMessage -API 'Standards' -tenant $tenant -message 'MS authenticator OTP/oAuth tokens is not enabled' -sev Alert
+            Write-StandardsAlert -message 'MS authenticator OTP/oAuth tokens is not enabled' -object $CurrentInfo -tenant $tenant -standardName 'allowOTPTokens' -standardId $Settings.standardId
+            Write-LogMessage -API 'Standards' -tenant $tenant -message 'MS authenticator OTP/oAuth tokens is not enabled' -sev Info
         }
     }
 
     if ($Settings.report -eq $true) {
+        Set-CIPPStandardsCompareField -FieldName 'standards.allowOTPTokens' -FieldValue $CurrentInfo.isSoftwareOathEnabled -TenantFilter $tenant
         Add-CIPPBPAField -FieldName 'MSAuthenticator' -FieldValue $CurrentInfo.isSoftwareOathEnabled -StoreAs bool -Tenant $tenant
     }
 
