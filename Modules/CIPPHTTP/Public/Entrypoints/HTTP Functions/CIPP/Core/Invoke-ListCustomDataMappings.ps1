@@ -19,9 +19,9 @@ function Invoke-ListCustomDataMappings {
         $Mappings = Get-CIPPAzDataTableEntity @CustomDataMappingsTable | ForEach-Object {
             $Mapping = $_.JSON | ConvertFrom-Json -AsHashtable
 
-            # Filter by tenant
+            # Filter by tenant: skip mappings that do NOT apply to the requested tenant
             $TenantList = Expand-CIPPTenantGroups -TenantFilter $Mapping.tenantFilter
-            if ($TenantFilter -and ($TenantList -contains $TenantFilter -or $TenantList -eq 'AllTenants')) {
+            if ($TenantFilter -and ($TenantList -notcontains $TenantFilter -and $TenantList -ne 'AllTenants')) {
                 return
             }
 
