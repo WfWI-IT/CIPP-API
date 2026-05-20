@@ -27,6 +27,7 @@ function Invoke-ListUsers {
             # Schema extension roots look like extxxxx_..., value is an object with leaf properties
             if ($p.Name -like 'ext*' -and $null -ne $p.Value -and $p.Value.PSObject -and $p.Value.PSObject.Properties.Count -gt 0) {
                 foreach ($leaf in $p.Value.PSObject.Properties) {
+                    if ($leaf.Name -like '@odata.*') { continue }
                     $key = "$($p.Name).$($leaf.Name)"
                     $customDataOut | Add-Member -MemberType NoteProperty -Name $key -Value $leaf.Value -Force
                 }
@@ -70,8 +71,8 @@ function Invoke-ListUsers {
         $GraphRequest = if ($TenantFilter -ne 'AllTenants') {
 
             if (-not [string]::IsNullOrWhiteSpace($UserId)) {
-                # Edit page load: single user fetch. Use v1.0 with explicit $select including schema extension root. [1](https://github.com/KelvinTegelaar/CIPP-API/compare/10.2.0...10.2.1.patch)
-                $selectFields = @(
+                # Edit page load: single user fetch. Use v1.0 with explicit $select including schema extension roots.
+                $selectFields = [System.Collections.Generic.List[string]]@(
                     'id',
                     'userPrincipalName',
                     'displayName',
@@ -93,10 +94,18 @@ function Invoke-ListUsers {
                     'otherMails',
                     'proxyAddresses',
                     'assignedLicenses',
-                    'onPremisesSyncEnabled',
-                    # schema extension root
-                    'extutvjwj5c_bambooUser'
+                    'onPremisesSyncEnabled'
                 )
+                # Dynamically add schema extension roots and directory extensions registered for users
+                try {
+                    $userAttrs = Get-CippCustomDataAttributes -TargetObject 'user'
+                    if ($userAttrs) {
+                        $schemaRoots = @(Get-CippCustomDataSelectRoots -CustomDataAttributes @($userAttrs.name))
+                        foreach ($root in $schemaRoots) { $selectFields.Add($root) }
+                    }
+                } catch {
+                    Write-Warning "Failed to load custom data attributes for $select: $($_.Exception.Message)"
+                }
                 $selectCsv = ($selectFields | Sort-Object -Unique) -join ','
 
                 $user = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$($UserId)?`$select=$selectCsv&`$expand=manager(`$select=id,userPrincipalName,displayName)" -tenantid $TenantFilter
@@ -106,8 +115,7 @@ function Invoke-ListUsers {
                 $user
             }
             else {
-                # Legacy list behavior (not the edit page). Keep it light, do not include schema extension by default.
-                # If you want it for list view too, add extutvjwj5c_bambooUser to this select.
+                # Legacy list behavior (not the edit page). Keep it light; schema extensions are not included here.
                 $selectFields = @(
                     'id',
                     'userPrincipalName',
