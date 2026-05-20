@@ -9,6 +9,11 @@ function Get-CippCustomDataAttributes {
     param(
         $TargetObject = 'All'
     )
+    # Save the original parameter value before any foreach loops that use $TargetObject as
+    # a loop variable - PowerShell foreach shares scope with the parent, so iterating with
+    # the same name would clobber the parameter before the final Where-Object filter runs.
+    $filterTargetObject = $TargetObject
+
     $CustomDataTable = Get-CippTable -tablename 'CustomData'
     $CustomDataEntities = Get-CIPPAzDataTableEntity @CustomDataTable
     $AvailableAttributes = foreach ($CustomDataEntity in $CustomDataEntities) {
@@ -17,12 +22,12 @@ function Get-CippCustomDataAttributes {
         if ($CustomData) {
             if ($Type -eq 'SchemaExtension') {
                 $Name = $CustomData.id
-                foreach ($TargetObject in $CustomData.targetTypes) {
+                foreach ($SchemaTargetType in $CustomData.targetTypes) {
                     foreach ($Property in $CustomData.properties) {
                         [PSCustomObject]@{
                             name          = '{0}.{1}' -f $Name, $Property.name
                             type          = $Type
-                            targetObject  = $TargetObject
+                            targetObject  = $SchemaTargetType
                             dataType      = $Property.type
                             isMultiValued = $false
                         }
@@ -30,11 +35,11 @@ function Get-CippCustomDataAttributes {
                 }
             } elseif ($Type -eq 'DirectoryExtension') {
                 $Name = $CustomDataEntity.RowKey
-                foreach ($TargetObject in $CustomData.targetObjects) {
+                foreach ($DirTargetObject in $CustomData.targetObjects) {
                     [PSCustomObject]@{
                         name          = $Name
                         type          = $Type
-                        targetObject  = $TargetObject
+                        targetObject  = $DirTargetObject
                         dataType      = $CustomData.dataType
                         isMultiValued = $CustomData.isMultiValued
                     }
@@ -43,9 +48,9 @@ function Get-CippCustomDataAttributes {
         }
     }
 
-    if ($TargetObject -eq 'All') {
+    if ($filterTargetObject -eq 'All') {
         return $AvailableAttributes
     } else {
-        return $AvailableAttributes | Where-Object { $_.targetObject -eq $TargetObject }
+        return $AvailableAttributes | Where-Object { $_.targetObject -eq $filterTargetObject }
     }
 }

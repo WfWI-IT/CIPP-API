@@ -76,75 +76,50 @@ function Invoke-EditUser {
                 }
             }
         }
-if ($UserObj.customData) {
-    # Collect schema extension updates grouped by root, e.g. extutvjwj5c_bambooUser => @{ Division="x"; isGSCmember=$true }
-    $schemaExtensionUpdates = @{}
+        if ($UserObj.customData) {
+            # Group schema extension fields by root for nested PATCH payload, e.g. extutvjwj5c_bambooUser => @{ Division="x" }
+            $schemaExtensionUpdates = @{}
 
-    foreach ($prop in $UserObj.customData.PSObject.Properties) {
-        $name = [string]$prop.Name
-        $value = $prop.Value
+            foreach ($prop in $UserObj.customData.PSObject.Properties) {
+                $name  = [string]$prop.Name
+                $value = $prop.Value
 
-        # Skip null and empty strings, but allow booleans and numbers
-        $isEmptyString = ($value -is [string]) -and [string]::IsNullOrWhiteSpace($value)
-        if ($null -eq $value -or $isEmptyString) { continue }
+                # Skip null and empty strings, but allow booleans and numbers
+                $isEmptyString = ($value -is [string]) -and [string]::IsNullOrWhiteSpace($value)
+                if ($null -eq $value -or $isEmptyString) { continue }
 
-        # Schema extension mapping format: extxxxx_schema.field
-        if ($name -like 'ext*.*') {
-            $parts = $name.Split('.', 2)
-            $root = $parts[0]
-            $leaf = $parts[1]
+                # Schema extension: extxxxx_schema.field
+                if ($name -like 'ext*.*') {
+                    $parts = $name.Split('.', 2)
+                    $root  = $parts[0]
+                    $leaf  = $parts[1]
+                    if (-not $schemaExtensionUpdates.ContainsKey($root)) {
+                        $schemaExtensionUpdates[$root] = @{}
+                    }
+                    $schemaExtensionUpdates[$root][$leaf] = $value
+                    continue
+                }
 
-            if (-not $schemaExtensionUpdates.ContainsKey($root)) {
-                $schemaExtensionUpdates[$root] = @{}
+                # Directory extension: extension_<appid>_<name>
+                if ($name -like 'extension_*') {
+                    Write-Host "Editing user and adding directory extension $name with value $value"
+                    $BodyToShip | Add-Member -NotePropertyName $name -NotePropertyValue $value -Force
+                    continue
+                }
+
+                Write-Host "Skipping customData attribute '$name': not a recognised extension key format"
             }
 
-            $schemaExtensionUpdates[$root][$leaf] = $value
-            continue
+            # Add each schema extension root as a nested object on the PATCH payload
+            foreach ($root in $schemaExtensionUpdates.Keys) {
+                $nested = [pscustomobject]$schemaExtensionUpdates[$root]
+                Write-Host "Editing user: adding schema extension $root -> $(($nested | ConvertTo-Json -Compress -Depth 10))"
+                $BodyToShip | Add-Member -NotePropertyName $root -NotePropertyValue $nested -Force
+            }
         }
-
-        # Directory extension mapping format: extension_<appid>_<name>
-        if ($name -like 'extension_*') {
-            Write-Host "Editing user and adding directory extension $name with value $value"
-            $BodyToShip | Add-Member -NotePropertyName $name -NotePropertyValue $value -Force
-            continue
-        }
-
-        # Anything else: ignore or log, do not inject unknown top-level properties
-        Write-Host "Skipping customData attribute '$name' because it is not a schema or directory extension key"
-    }
-
-    # Add each schema extension root as a nested object on the PATCH payload
-    foreach ($root in $schemaExtensionUpdates.Keys) {
-        $nested = [pscustomobject]$schemaExtensionUpdates[$root]
-        Write-Host "Editing user and adding schema extension $root with nested values: $(($nested | ConvertTo-Json -Compress -Depth 10))"
-        $BodyToShip | Add-Member -NotePropertyName $root -NotePropertyValue $nested -Force
-    }
-}
         $bodyToShip = ConvertTo-Json -Depth 10 -InputObject $BodyToship -Compress
         $null = New-GraphPostRequest -uri "https://graph.microsoft.com/beta/users/$($UserObj.id)" -tenantid $UserObj.tenantFilter -type PATCH -body $BodyToship -verbose
-        $Results.Add( 'Success. The user has been edited.' )
-        # Fetch updated user including schema extension roots after PATCH
-try {
-    $customKeys = @()
-    if ($UserObj.customData) {
-        $customKeys = @($UserObj.customData.PSObject.Properties.Name)
-    }
-
-    $selectRoots = Get-CippCustomDataSelectRoots -CustomDataAttributes $customKeys
-    $selectBase  = @('id','displayName','userPrincipalName')
-    $selectAll   = ($selectBase + $selectRoots) | Sort-Object -Unique
-    $selectCsv   = ($selectAll -join ',')
-
-    $UpdatedUser = New-GraphGetRequest -tenantid $UserObj.tenantFilter -uri "https://graph.microsoft.com/v1.0/users/$($UserObj.id)?`$select=$selectCsv"
-
-    # Return it as part of results payload (keeps backward compatibility)
-    $Results.Add([pscustomobject]@{
-        UpdatedUser = $UpdatedUser
-    })
-} catch {
-    Write-Host "Failed to fetch updated user after edit: $($_.Exception.Message)"
-}
-
+        $Results.Add('Success. The user has been edited.')
         Write-LogMessage -API $APIName -tenant ($UserObj.tenantFilter) -headers $Headers -message "Edited user $($UserObj.DisplayName) with id $($UserObj.id)" -Sev Info
         if ($UserObj.password) {
             $passwordProfile = [pscustomobject]@{'passwordProfile' = @{ 'password' = $UserObj.password; 'forceChangePasswordNextSignIn' = [boolean]$UserObj.MustChangePass } } | ConvertTo-Json
