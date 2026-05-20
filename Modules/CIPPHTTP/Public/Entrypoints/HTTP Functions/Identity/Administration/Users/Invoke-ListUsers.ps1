@@ -104,7 +104,7 @@ function Invoke-ListUsers {
                         foreach ($root in $schemaRoots) { $selectFields.Add($root) }
                     }
                 } catch {
-                    Write-Warning "Failed to load custom data attributes for $select: $($_.Exception.Message)"
+                    Write-Warning "Failed to load custom data attributes for user objects; custom extensions will not be included in `$select. Error: $($_.Exception.Message)"
                 }
                 $selectCsv = ($selectFields | Sort-Object -Unique) -join ','
 
