@@ -16,7 +16,9 @@ function Invoke-ListUsers {
     $GraphFilter  = $Request.Query.graphFilter
     $UserId       = $Request.Query.UserID
 
-    # Helper: flatten schema and directory extensions into dotted customData keys
+    # Helper: flatten schema and directory extensions into the customData property.
+    # Schema extensions are returned as NESTED objects (not flat dotted keys) so that
+    # React Hook Form field paths like "customData.extXXX_schema.field" resolve correctly.
     function Add-CustomDataFlattening {
         param([Parameter(Mandatory)] $UserObject)
 
@@ -24,13 +26,16 @@ function Invoke-ListUsers {
 
         foreach ($p in $UserObject.PSObject.Properties) {
 
-            # Schema extension roots look like extxxxx_..., value is an object with leaf properties
+            # Schema extension roots look like extxxxx_...; value is a nested object.
+            # We re-expose the nested object under the same root key so that the
+            # RHF path "customData.<root>.<leaf>" resolves to the correct value.
             if ($p.Name -like 'ext*' -and $null -ne $p.Value -and $p.Value.PSObject -and $p.Value.PSObject.Properties.Count -gt 0) {
+                $nestedObj = [pscustomobject]@{}
                 foreach ($leaf in $p.Value.PSObject.Properties) {
                     if ($leaf.Name -like '@odata.*') { continue }
-                    $key = "$($p.Name).$($leaf.Name)"
-                    $customDataOut | Add-Member -MemberType NoteProperty -Name $key -Value $leaf.Value -Force
+                    $nestedObj | Add-Member -MemberType NoteProperty -Name $leaf.Name -Value $leaf.Value -Force
                 }
+                $customDataOut | Add-Member -MemberType NoteProperty -Name $p.Name -Value $nestedObj -Force
             }
 
             # Directory extension properties (if ever used)
