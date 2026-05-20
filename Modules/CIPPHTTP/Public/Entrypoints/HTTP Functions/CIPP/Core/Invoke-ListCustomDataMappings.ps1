@@ -20,8 +20,11 @@ function Invoke-ListCustomDataMappings {
             $Mapping = $_.JSON | ConvertFrom-Json -AsHashtable
 
             # Filter by tenant: skip mappings that do NOT apply to the requested tenant
+            # Expand-CIPPTenantGroups returns objects with a .value property (the domain name).
+            # We must compare against .value strings, not the objects themselves.
             $TenantList = Expand-CIPPTenantGroups -TenantFilter $Mapping.tenantFilter
-            if ($TenantFilter -and ($TenantList -notcontains $TenantFilter -and $TenantList -ne 'AllTenants')) {
+            $TenantDomains = @($TenantList.value)
+            if ($TenantFilter -and ($TenantDomains -notcontains $TenantFilter -and $TenantDomains -notcontains 'AllTenants')) {
                 return
             }
 
