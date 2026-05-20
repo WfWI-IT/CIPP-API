@@ -88,7 +88,22 @@ function Invoke-EditUser {
                 $isEmptyString = ($value -is [string]) -and [string]::IsNullOrWhiteSpace($value)
                 if ($null -eq $value -or $isEmptyString) { continue }
 
-                # Schema extension: extxxxx_schema.field
+                # Schema extension as NESTED OBJECT: extxxxx_schema => { field: value }
+                # This is what React Hook Form sends (field name: customData.extxxxx_schema.field)
+                if ($name -like 'ext*' -and -not ($name -like 'ext*.*') -and $value.PSObject) {
+                    if (-not $schemaExtensionUpdates.ContainsKey($name)) {
+                        $schemaExtensionUpdates[$name] = @{}
+                    }
+                    foreach ($leaf in $value.PSObject.Properties) {
+                        $leafVal = $leaf.Value
+                        $isEmptyLeaf = ($leafVal -is [string]) -and [string]::IsNullOrWhiteSpace($leafVal)
+                        if ($null -eq $leafVal -or $isEmptyLeaf) { continue }
+                        $schemaExtensionUpdates[$name][$leaf.Name] = $leafVal
+                    }
+                    continue
+                }
+
+                # Legacy flat dotted-key format: extxxxx_schema.field (kept for backward compat)
                 if ($name -like 'ext*.*') {
                     $parts = $name.Split('.', 2)
                     $root  = $parts[0]
