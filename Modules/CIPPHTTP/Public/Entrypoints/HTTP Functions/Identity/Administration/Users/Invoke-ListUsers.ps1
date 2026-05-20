@@ -101,11 +101,35 @@ function Invoke-ListUsers {
                     'assignedLicenses',
                     'onPremisesSyncEnabled'
                 )
-                # Dynamically add schema extension roots and directory extensions registered for users
+                # Dynamically add schema extension roots from two sources:
+                # 1. CustomData table (schema extension definitions)
+                # 2. CustomDataMappings table (per-tenant field mappings - the authoritative source)
+                # Using both ensures roots are discovered even if the CustomData table is not populated.
                 try {
+                    $allAttrNames = [System.Collections.Generic.List[string]]@()
+
+                    # Source 1: CustomData table (schema extension definitions)
                     $userAttrs = Get-CippCustomDataAttributes -TargetObject 'user'
                     if ($userAttrs) {
-                        $schemaRoots = @(Get-CippCustomDataSelectRoots -CustomDataAttributes @($userAttrs.name))
+                        foreach ($n in @($userAttrs.name)) {
+                            if ($n) { $allAttrNames.Add([string]$n) }
+                        }
+                    }
+
+                    # Source 2: CustomDataMappings table (customDataAttribute.value fields).
+                    # This covers the common case where CustomData table has not been separately populated.
+                    $mappingsTable   = Get-CippTable -TableName 'CustomDataMappings'
+                    $mappingEntities = Get-CIPPAzDataTableEntity @mappingsTable
+                    foreach ($entity in $mappingEntities) {
+                        $m = $entity.JSON | ConvertFrom-Json
+                        if ($m -and $m.customDataAttribute -and $m.customDataAttribute.value) {
+                            $attrVal = [string]$m.customDataAttribute.value
+                            if (-not $allAttrNames.Contains($attrVal)) { $allAttrNames.Add($attrVal) }
+                        }
+                    }
+
+                    if ($allAttrNames.Count -gt 0) {
+                        $schemaRoots = @(Get-CippCustomDataSelectRoots -CustomDataAttributes @($allAttrNames))
                         foreach ($root in $schemaRoots) { $selectFields.Add($root) }
                     }
                 } catch {
