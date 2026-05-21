@@ -59,7 +59,9 @@ function Set-CIPPDlpCompliancePolicy {
         'ReportSeverityLevel', 'RuleErrorAction',
         'ContentExtensionMatchesWords', 'DocumentNameMatchesPatterns',
         'DocumentNameMatchesWords', 'DocumentSizeOver',
-        'ContentCharacterSetContainsWords', 'ContentFileTypeMatches'
+        'ContentCharacterSetContainsWords', 'ContentFileTypeMatches',
+        'EndpointDlpRestrictions', 'SensitivityLabels',
+        'ContentContainsSensitivityLabel', 'ExceptIfContentContainsSensitivityLabel'
     )
     $LocationFields = $PolicyAllowedFields | Where-Object { $_ -like '*Location*' }
 
