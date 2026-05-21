@@ -162,33 +162,15 @@ function Invoke-ListUsers {
                         $FlatAttr  = $FlatMapping.customDataAttribute.value
                         if ([string]::IsNullOrWhiteSpace($FlatLabel) -or [string]::IsNullOrWhiteSpace($FlatAttr)) { continue }
                         $FlatValue = Resolve-CippCustomDataValue -UserObject $user -CustomDataAttribute $FlatAttr
+                        # Set by the manualEntryFieldLabel so CIPP User Attribute fields whose label matches exactly get populated.
                         $user | Add-Member -MemberType NoteProperty -Name $FlatLabel -Value $FlatValue -Force
-                    }
-                } catch {
-                    Write-Warning "Failed to flatten Custom Data mapping values to top-level user properties: $($_.Exception.Message)"
-                }
-
-                # Flatten Custom Data mapping values to top-level user properties.
-                # This allows CIPP User Attributes fields (whose label matches the mapping's
-                # manualEntryFieldLabel) to display schema extension data without frontend changes.
-                # Driven dynamically by CustomDataMappings: adding or removing a mapping entry
-                # automatically includes or excludes the corresponding top-level property on the user object.
-                try {
-                    $FlattenTable = Get-CippTable -TableName 'CustomDataMappings'
-                    $FlattenMappings = Get-CIPPAzDataTableEntity @FlattenTable
-                    foreach ($FlatEntry in @($FlattenMappings)) {
-                        $FlatMapping = $FlatEntry.JSON | ConvertFrom-Json -AsHashtable
-                        # Tenant scope check (same logic as Invoke-ListCustomDataMappings)
-                        $FlatTenantList = Expand-CIPPTenantGroups -TenantFilter $FlatMapping.tenantFilter
-                        $FlatTenantDomains = @($FlatTenantList.value)
-                        if ($FlatTenantDomains -notcontains $TenantFilter -and $FlatTenantDomains -notcontains 'AllTenants') { continue }
-                        # Only user-targeted mappings
-                        if ($FlatMapping.directoryObjectType.label -ne 'User') { continue }
-                        $FlatLabel = $FlatMapping.manualEntryFieldLabel
-                        $FlatAttr  = $FlatMapping.customDataAttribute.value
-                        if ([string]::IsNullOrWhiteSpace($FlatLabel) -or [string]::IsNullOrWhiteSpace($FlatAttr)) { continue }
-                        $FlatValue = Resolve-CippCustomDataValue -UserObject $user -CustomDataAttribute $FlatAttr
-                        $user | Add-Member -MemberType NoteProperty -Name $FlatLabel -Value $FlatValue -Force
+                        # Also set by the leaf property name (last segment of the dotted attribute path).
+                        # This handles cases where the User Attribute label matches the raw extension leaf name
+                        # (e.g. User Attribute "twitter" matched by leaf "twitter" of "extXXX.twitter").
+                        $FlatLeaf = $FlatAttr.Split('.')[-1]
+                        if (-not [string]::IsNullOrWhiteSpace($FlatLeaf) -and $FlatLeaf -ne $FlatLabel) {
+                            $user | Add-Member -MemberType NoteProperty -Name $FlatLeaf -Value $FlatValue -Force
+                        }
                     }
                 } catch {
                     Write-Warning "Failed to flatten Custom Data mapping values to top-level user properties: $($_.Exception.Message)"
