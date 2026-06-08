@@ -38,6 +38,8 @@ function Start-CIPPDBTestsRun {
     }
 
     try {
+        try { [CIPP.TestDataCache]::Clear() } catch { Write-Information "TestDataCache clear skipped: $($_.Exception.Message)" }
+
         $AllTenantsList = if ($TenantFilter -eq 'allTenants') {
             $DbCounts = Get-CIPPDbItem -CountsOnly -TenantFilter 'allTenants'
             $TenantsWithData = $DbCounts | Where-Object { (($_.DataCount ?? $_.Count) ?? 0) -gt 0 } | Select-Object -ExpandProperty PartitionKey -Unique
@@ -58,11 +60,14 @@ function Start-CIPPDBTestsRun {
             return
         }
 
-        # Phase 1: Build per-tenant list activities (discover tests per tenant)
+        # Phase 1: Build per-tenant list activities (discover tests per tenant).
+        # The tenants below were already filtered by data presence above, so we pass
+        # SkipDbCheck=$true to avoid a redundant CountsOnly round-trip per tenant.
         $Batch = foreach ($Tenant in $AllTenantsList) {
             @{
                 FunctionName = 'CIPPTestsList'
                 TenantFilter = $Tenant
+                SkipDbCheck  = $true
             }
         }
 
