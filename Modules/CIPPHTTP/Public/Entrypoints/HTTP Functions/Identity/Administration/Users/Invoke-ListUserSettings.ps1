@@ -4,6 +4,8 @@ function Invoke-ListUserSettings {
         Entrypoint,AnyTenant
     .ROLE
         Identity.User.Read
+    .DESCRIPTION
+        Retrieves the current CIPP user's personal settings and preferences.
     #>
     param($Request, $TriggerMetadata)
     $Headers = $Request.Headers
@@ -42,6 +44,25 @@ function Invoke-ListUserSettings {
         } catch {
             Write-Warning "Failed to convert UserSpecificSettings JSON: $($_.Exception.Message)"
         }
+
+        $TestOffboardingConfigured = {
+            param($Offboarding)
+            if (-not $Offboarding) { return $false }
+            foreach ($Property in $Offboarding.PSObject.Properties) {
+                if ($Property.Value -eq $true) { return $true }
+            }
+            return $false
+        }
+
+        $AllUsersOffboardingConfigured = & $TestOffboardingConfigured $UserSettings.offboardingDefaults
+        $UserOffboardingConfigured = & $TestOffboardingConfigured $UserSpecificSettings.offboardingDefaults
+
+        $OffboardingDefaultsSource = 'allUsers'
+        if (-not $AllUsersOffboardingConfigured -and $UserOffboardingConfigured) {
+            $UserSettings | Add-Member -MemberType NoteProperty -Name 'offboardingDefaults' -Value $UserSpecificSettings.offboardingDefaults -Force | Out-Null
+            $OffboardingDefaultsSource = 'user'
+        }
+        $UserSettings | Add-Member -MemberType NoteProperty -Name 'offboardingDefaultsSource' -Value $OffboardingDefaultsSource -Force | Out-Null
 
         # Get user bookmarks
         try {

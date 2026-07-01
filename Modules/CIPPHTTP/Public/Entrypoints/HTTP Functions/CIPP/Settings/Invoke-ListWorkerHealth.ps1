@@ -4,6 +4,8 @@ function Invoke-ListWorkerHealth {
         Entrypoint,AnyTenant
     .ROLE
         CIPP.SuperAdmin.Read
+    .DESCRIPTION
+        Retrieves health status and diagnostics for CIPP background worker processes. Requires SuperAdmin access.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -15,6 +17,7 @@ function Invoke-ListWorkerHealth {
         switch ($Action) {
             'Snapshot' {
                 $Snapshot = [Craft.Services.WorkerMetricsBridge]::GetSnapshot()
+                try { $Snapshot.Memory | Add-Member -NotePropertyName 'TestDataCacheCount' -NotePropertyValue ([CIPP.TestDataCache]::Count) -ErrorAction SilentlyContinue } catch {}
                 $Body = @{ Results = $Snapshot }
             }
             'Summary' {
@@ -25,6 +28,24 @@ function Invoke-ListWorkerHealth {
                 $PoolType = $Request.Query.PoolType ?? 'http'
                 $Pool = [Craft.Services.WorkerMetricsBridge]::GetPoolMetrics($PoolType)
                 $Body = @{ Results = $Pool }
+            }
+            'History' {
+                $Minutes = if ($Request.Query.Minutes) { [int]$Request.Query.Minutes } else { 60 }
+                $MaxPoints = if ($Request.Query.MaxPoints) { [int]$Request.Query.MaxPoints } else { $null }
+                $History = [Craft.Services.StatsHistoryBridge]::GetHistory($Minutes, $MaxPoints)
+                $Count = [Craft.Services.StatsHistoryBridge]::GetCount()
+                $Body = @{
+                    Results = @{
+                        TotalPoints    = $Count
+                        ReturnedPoints = $History.Count
+                        RangeMinutes   = $Minutes
+                        Data           = $History
+                    }
+                }
+            }
+            'Startup' {
+                $StartupInfo = [Craft.Services.StartupInfoBridge]::GetInfo()
+                $Body = @{ Results = $StartupInfo }
             }
             'Jobs' {
                 $RunName = $Request.Query.RunName
@@ -70,10 +91,6 @@ function Invoke-ListWorkerHealth {
                 $Result = [Craft.Services.WorkerMetricsBridge]::DeleteJob($JobId)
                 $Body = @{ Results = @{ Success = $Result; JobId = $JobId } }
             }
-            'PurgeCompleted' {
-                $Purged = [Craft.Services.WorkerMetricsBridge]::PurgeCompleted()
-                $Body = @{ Results = @{ Success = $true; PurgedCount = $Purged } }
-            }
             'ChangePriority' {
                 $JobId = $Request.Query.JobId ?? $Request.Body.JobId
                 $NewPriority = $Request.Query.Priority ?? $Request.Body.Priority
@@ -85,6 +102,14 @@ function Invoke-ListWorkerHealth {
                 }
                 $Result = [Craft.Services.WorkerMetricsBridge]::ChangePriority($JobId, [int]$NewPriority)
                 $Body = @{ Results = @{ Success = $Result; JobId = $JobId; NewPriority = [int]$NewPriority } }
+            }
+            'CacheDiag' {
+                $Diag = [CIPP.TestDataCache]::GetDiagnostics()
+                $Body = @{ Results = $Diag }
+            }
+            'MemoryDetail' {
+                $Breakdown = [Craft.Services.WorkerMetricsBridge]::GetMemoryBreakdown()
+                $Body = @{ Results = $Breakdown }
             }
             default {
                 $Body = @{ Results = "Unknown action: $Action" }

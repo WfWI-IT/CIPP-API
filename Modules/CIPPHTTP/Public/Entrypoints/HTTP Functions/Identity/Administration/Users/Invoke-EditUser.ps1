@@ -30,7 +30,6 @@ function Invoke-EditUser {
 
     #Edit the user
     try {
-        Write-Host "$([boolean]$UserObj.MustChangePass)"
         $UserPrincipalName = "$($UserObj.username)@$($UserObj.Domain ? $UserObj.Domain : $UserObj.primDomain.value)"
         $normalizedOtherMails = @(
             @($UserObj.otherMails) | ForEach-Object {
@@ -65,8 +64,28 @@ function Invoke-EditUser {
                 'forceChangePasswordNextSignIn' = [bool]$UserObj.MustChangePass
             }
         } | ForEach-Object {
-            $NonEmptyProperties = $_.PSObject.Properties | Select-Object -ExpandProperty Name
-            $_ | Select-Object -Property $NonEmptyProperties
+            $NonEmptyProperties = $_.PSObject.Properties |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_.Value) } |
+                Select-Object -ExpandProperty Name
+                $_ | Select-Object -Property $NonEmptyProperties
+            }
+        # Explicit clears: the frontend lists the profile fields the user actively emptied.
+        # We re-add them as null (scalars) / empty array (collections) so Graph clears them, while
+        # untouched empty fields stay omitted. Whitelisted to safe attributes
+        $ClearableFields = @(
+            'givenName', 'surname', 'department', 'jobTitle', 'mobilePhone',
+            'streetAddress', 'city', 'state', 'postalCode', 'country', 'companyName',
+            'businessPhones', 'otherMails'
+        )
+        $ClearList = @($UserObj.clearProperties | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        foreach ($Prop in $ClearList) {
+            if ($Prop -notin $ClearableFields) { continue }
+            # Pass @() literally; routing it through a variable unrolls it back to $null.
+            if ($Prop -in 'businessPhones', 'otherMails') {
+                $BodyToShip | Add-Member -NotePropertyName $Prop -NotePropertyValue @() -Force
+            } else {
+                $BodyToShip | Add-Member -NotePropertyName $Prop -NotePropertyValue $null -Force
+            }
         }
         if ($UserObj.defaultAttributes) {
             $UserObj.defaultAttributes | Get-Member -MemberType NoteProperty | ForEach-Object {
@@ -218,12 +237,13 @@ function Invoke-EditUser {
         $AddToGroups | ForEach-Object {
 
             $GroupType = $_.addedFields.groupType
+            $CalculatedGroupType = $_.addedFields.calculatedGroupType ?? $null
             $GroupID = $_.value
             $GroupName = $_.label
             Write-Host "About to add $($UserObj.userPrincipalName) to $GroupName. Group ID is: $GroupID and type is: $GroupType"
 
             try {
-                if ($GroupType -eq 'distributionList' -or $GroupType -eq 'security') {
+                if ($GroupType -eq 'distributionList' -or $GroupType -eq 'security' -and ($calculatedGroupType -ne 'generic' )) {
                     Write-Host 'Adding to group via Add-DistributionGroupMember'
                     $Params = @{ Identity = $GroupID; Member = $UserObj.id; BypassSecurityGroupManagerCheck = $true }
                     $null = New-ExoRequest -tenantid $UserObj.tenantFilter -cmdlet 'Add-DistributionGroupMember' -cmdParams $params -UseSystemMailbox $true
@@ -250,12 +270,13 @@ function Invoke-EditUser {
         $RemoveFromGroups | ForEach-Object {
 
             $GroupType = $_.addedFields.groupType
+            $CalculatedGroupType = $_.addedFields.calculatedGroupType ?? $null
             $GroupID = $_.value
             $GroupName = $_.label
             Write-Host "About to remove $($UserObj.userPrincipalName) from $GroupName. Group ID is: $GroupID and type is: $GroupType"
 
             try {
-                if ($GroupType -eq 'distributionList' -or $GroupType -eq 'security') {
+                if ($GroupType -eq 'distributionList' -or $GroupType -eq 'security' -and ($calculatedGroupType -ne 'generic' )) {
                     Write-Host 'Removing From group via Remove-DistributionGroupMember'
                     $Params = @{ Identity = $GroupID; Member = $UserObj.id; BypassSecurityGroupManagerCheck = $true }
                     $null = New-ExoRequest -tenantid $UserObj.tenantFilter -cmdlet 'Remove-DistributionGroupMember' -cmdParams $params -UseSystemMailbox $true

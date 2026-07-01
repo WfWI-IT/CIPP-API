@@ -4,6 +4,8 @@ function Invoke-ListFeatureFlags {
         Entrypoint
     .ROLE
         CIPP.Core.Read
+    .DESCRIPTION
+        Lists CIPP feature flags and their enabled/disabled state, including environment-driven overrides.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -18,6 +20,9 @@ function Invoke-ListFeatureFlags {
             foreach ($Flag in $FeatureFlags) {
                 if ($Flag.Id -eq 'SuperAdminNG') {
                     $Flag.Enabled = $true
+                }
+                elseIf ($Flag.Id -eq 'AppInsights') {
+                    $Flag.Enabled = $false
                 }
             }
         }
